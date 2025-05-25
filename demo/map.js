@@ -131,11 +131,22 @@ if (!mapboxgl.supported()) {
     })
     .on('load', function() {
       showLegend();
+      // Note: Auto-search logic moved to after map initialization block
     })
     .on('click', 'label-address', poiOnClick)
     .on('mouseenter', 'label-address', addMousePointerCursor)
     .on('mouseleave', 'label-address', removeMousePointerCursor)
-    .once('data', showDirectObject)
+    // Auto-trigger search if searchQuery is in mapData - Placed before showDirectObject
+    if (mapData.searchQuery && mapData.searchQuery.trim() !== '') {
+      var searchInputContext = document.getElementById('i_search_text');
+      if (searchInputContext) { // Renamed variable to avoid conflict if 'searchInput' is used elsewhere
+        searchInputContext.value = mapData.searchQuery;
+        searchKey();
+      } else {
+        console.error("Search input #i_search_text not found. Cannot auto-trigger search.");
+      }
+    }
+    map.once('data', showDirectObject) // showDirectObject is now after the potential auto-search
   ;
 }
 
@@ -192,16 +203,37 @@ $('#layers button').on('click', function (e) {
 });
 
 function getUrlHash(state) {
-  var hash = [];
-  for (var key in state) {
-    var value = state[key];
-    if (key === 'type') {
-      value = mapTypes[state.type]
+  var parts = [];
+  // Ensure core view parameters are valid before adding them.
+  // `mapTypes[state.type]` must exist, zoom, lat, lng should be numbers.
+  if (state.type && mapTypes[state.type] && 
+      typeof state.zoom === 'number' && 
+      typeof state.lat === 'number' && 
+      typeof state.lng === 'number') {
+    parts.push(mapTypes[state.type]); 
+    parts.push(state.zoom.toFixed(2)); // Consistent formatting
+    parts.push(state.lat.toFixed(5)); // Consistent formatting
+    parts.push(state.lng.toFixed(5)); // Consistent formatting
+    parts.push(state.bearing);
+    parts.push(state.pitch);
+    if (state.objectId) { // objectId can be string or null
+      parts.push(state.objectId);
     }
-    hash.push(value);
   }
-  return hash.join('/');
-};
+  
+  var hashString = parts.join('/');
+
+  if (state.searchQuery && state.searchQuery.trim() !== '') {
+    var encodedQuery = encodeURIComponent(state.searchQuery.trim());
+    if (hashString !== '') {
+      hashString += '/q=' + encodedQuery;
+    } else {
+      // If only a search query exists, the hash is just "q=..."
+      hashString = 'q=' + encodedQuery;
+    }
+  }
+  return hashString;
+}
 
 function changeHashUrl() {
   var hash = getUrlHash(mapData);
@@ -210,55 +242,126 @@ function changeHashUrl() {
 }
 
 function getMapDataFromHashUrl() {
-  var hash = window.location.hash;
-  if (hash.length > 0) {
-    hash = hash.replace('#', '');
+  var originalHash = window.location.hash;
+  if (originalHash.length === 0 || originalHash === '#') {
+    return null;
+  }
+  var currentHash = originalHash.replace('#', '');
 
-    // Add support old hash format: #l=55.23777,23.871,8,L
-    var result = hash.match(new RegExp('l=([^]+)'));
-    if (result) {
-      var mapQueries = result[1].split(',');
-      return {
-        lat: parseFloat(mapQueries[0]),
-        lng: parseFloat(mapQueries[1]),
-        zoom: parseInt(mapQueries[2])
-      };
+  var data = {
+    type: defaultType,
+    zoom: defaultZoom,
+    lat: defaultLat,
+    lng: defaultLng,
+    bearing: 0,
+    pitch: 0,
+    objectId: null,
+    searchQuery: null
+  };
+
+  // Handle old #l= format first
+  var oldLFormatResult = currentHash.match(new RegExp('l=([^]+)'));
+  if (oldLFormatResult) {
+    var lQueries = oldLFormatResult[1].split(',');
+    if (lQueries.length >= 3) {
+      data.lat = parseFloat(lQueries[0]);
+      data.lng = parseFloat(lQueries[1]);
+      data.zoom = parseInt(lQueries[2]);
     }
+    // This format doesn't have other params, so return with defaults for them
+    return data;
+  }
 
-    var mapQueries = hash.split('/');
+  var mapQueries = currentHash.split('/');
+  var viewQueries = [];
 
-    // Add support old hash format: #8/55.23777/23.871
-    if (mapQueries.length === 3) {
-      return {
-        zoom: parseFloat(mapQueries[0]),
-        lat: parseFloat(mapQueries[1]),
-        lng: parseFloat(mapQueries[2])
-      }
+  // Extract search query if present
+  var querySegmentIndex = mapQueries.findIndex(s => s.startsWith('q='));
+  if (querySegmentIndex > -1) {
+    var querySegment = mapQueries[querySegmentIndex];
+    try {
+      data.searchQuery = decodeURIComponent(querySegment.substring(2));
+    } catch (e) {
+      console.error("Error decoding search query from hash:", e);
+      data.searchQuery = null;
     }
+    // Remove the query segment for further view parsing
+    viewQueries = mapQueries.filter((_, index) => index !== querySegmentIndex);
+  } else {
+    viewQueries = mapQueries.slice();
+  }
 
-    if (mapQueries.length < 6) {
-      return null;
-    }
+  // If only q= was present, viewQueries will be empty. Return data (defaults + searchQuery).
+  if (viewQueries.length === 0 && data.searchQuery !== null) {
+    return data;
+  }
+  
+  // Handle old #zoom/lat/lng format (using viewQueries)
+  if (viewQueries.length === 3 &&
+      !isNaN(parseFloat(viewQueries[0])) &&
+      !isNaN(parseFloat(viewQueries[1])) &&
+      !isNaN(parseFloat(viewQueries[2]))) {
+    data.zoom = parseFloat(viewQueries[0]);
+    data.lat = parseFloat(viewQueries[1]);
+    data.lng = parseFloat(viewQueries[2]);
+    // Type remains default (or from mapData if this was just a partial update)
+    return data;
+  }
 
-    var type = defaultType;
+  // Handle standard format: [type_code_or_full_type_name]/zoom/lat/lng/bearing/pitch/[objectId]
+  // Minimum 5 parts for view (zoom,lat,lng,bearing,pitch) if type is default/implicit
+  // Minimum 6 parts for view if type is specified first.
+  
+  let baseIndex = 0;
+  let typeSpecified = false;
+
+  if (viewQueries.length > 0) {
+    let potentialType = viewQueries[0];
+    // Check for short type code (e.g., 'm')
     for (var key in mapTypes) {
-      if (mapTypes[key] === mapQueries[0]) {
-        type = key;
+      if (mapTypes[key] === potentialType) {
+        data.type = key; // Store full type name
+        baseIndex = 1;
+        typeSpecified = true;
         break;
       }
     }
-
-    return {
-      type: type,
-      zoom: parseFloat(mapQueries[1]),
-      lat: parseFloat(mapQueries[2]),
-      lng: parseFloat(mapQueries[3]),
-      bearing: parseInt(mapQueries[4]),
-      pitch: parseInt(mapQueries[5]),
-      objectId: mapQueries[6] || null
-    };
+    // If not a short code, check for full type name (e.g., 'map')
+    // This is valid only if there are enough params after it for a full spec
+    if (!typeSpecified && Object.keys(mapTypes).includes(potentialType) && viewQueries.length >= (1 + 5) ) {
+      data.type = potentialType;
+      baseIndex = 1;
+      typeSpecified = true;
+    }
   }
-  return null;
+
+  // After determining type (or using default) and baseIndex, parse remaining view params
+  // Need at least 5 parameters from baseIndex for a valid view
+  if (viewQueries.length >= baseIndex + 5) {
+    data.zoom = parseFloat(viewQueries[baseIndex]);
+    data.lat = parseFloat(viewQueries[baseIndex + 1]);
+    data.lng = parseFloat(viewQueries[baseIndex + 2]);
+    data.bearing = parseInt(viewQueries[baseIndex + 3]);
+    data.pitch = parseInt(viewQueries[baseIndex + 4]);
+    if (viewQueries.length >= baseIndex + 6) {
+      data.objectId = viewQueries[baseIndex + 5] || null;
+    }
+  } else if (viewQueries.length > 0) {
+    // Not enough segments for a full view, and not the 3-param old format.
+    // If a search query was parsed, we return data with defaults for view.
+    // Otherwise, this is an invalid format for view parameters.
+    if (data.searchQuery === null) return null; // Invalid view, no search query to save it
+  } else if (data.searchQuery === null) {
+    // viewQueries is empty AND no search query was found. Hash was effectively empty or invalid.
+    return null;
+  }
+  
+  // Final validation: if no search query, core view params must be valid numbers.
+  if (data.searchQuery === null && (isNaN(data.zoom) || isNaN(data.lat) || isNaN(data.lng))) {
+    return null;
+  }
+
+  return data;
 }
 
 function setMapData() {
@@ -635,6 +738,15 @@ function searchKey() {
     const searchText = lpad000(i_search_text.value);
     console.log('Sending query! ' + searchText);
     sentText = i_search_text.value;
+
+    // Update mapData.searchQuery and URL hash
+    if (i_search_text.value && i_search_text.value.trim() !== '') {
+      mapData.searchQuery = i_search_text.value.trim();
+    } else {
+      mapData.searchQuery = null;
+    }
+    changeHashUrl(); // Update the URL with the new search query or its absence
+
     const data = {
         "explain": true,
         "query": {
