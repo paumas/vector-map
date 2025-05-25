@@ -65,6 +65,11 @@
 <div id="i_search">
 <input id="i_search_text" type="text" onkeyup="searchKey()">
 </div>
+<div id="route_controls" style="position: absolute; top: 8px; left: 250px; background: #ffffffc0; padding: 5px; border-radius: 5px;">
+  <input id="startPoint" type="text" placeholder="Start point">
+  <input id="endPoint" type="text" placeholder="End point">
+  <button id="calculateRouteButton">Calculate Route</button>
+</div>
 <div id="i_search_results"></div>
 
 <script src="/vendor/jquery-3.4.1.min.js" integrity="sha384-vk5WoKIaW/vJyUAd9n/wmopsmNhiy+L2Z+SBxGYnUkunIxVxAv/UtMOhba/xskxh"></script>
@@ -73,6 +78,7 @@
 <script src='search/typeahead.bundle.js'></script>
 <script src='search/typeahead-openmap.js'></script>
 <script src='search/search.js'></script>
+<script src="/vendor/graphhopper-js-client-0.13.3.js"></script>
 <script src="map.js"></script>
 <script type="text/javascript">
   if ('serviceWorker' in navigator) {

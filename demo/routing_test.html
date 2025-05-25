@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset='utf-8' />
+    <title>Routing Test</title>
+    <meta name="viewport" content="initial-scale=1" />
+    <link rel="stylesheet" href="/vendor/mapbox-gl-v1.12.0.css" />
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        #controls { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; z-index: 1; }
+        #test-results { position: absolute; top: 150px; left: 10px; background: white; padding: 10px; z-index: 1; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="controls">
+    <input id="startPoint" type="text" placeholder="Start: lat,lng">
+    <input id="endPoint" type="text" placeholder="End: lat,lng">
+    <button id="calculateRouteButton">Calculate Route</button>
+</div>
+
+<div id="test-results">
+    <h3>Test Results</h3>
+    <div id="results-content"></div>
+</div>
+
+<!-- Dependencies -->
+<script src="/vendor/jquery-3.4.1.min.js"></script>
+<script src="/vendor/mapbox-gl-v1.12.0.js"></script>
+<script src="/vendor/mapbox-gl-supported-v1.4.1.js"></script>
+<script src="/vendor/graphhopper-js-client-0.13.3.js"></script>
+<!-- map.js is the script we are testing -->
+<script src="map.js"></script>
+
+<script>
+    // Test script will go here
+    document.addEventListener('DOMContentLoaded', function () {
+        const resultsContent = document.getElementById('results-content');
+        
+        // Basic check: Ensure map object is initialized by map.js
+        if (typeof map === 'undefined') {
+            resultsContent.innerHTML += '<p style="color: red;">FAIL: Map object not found. map.js might not have loaded correctly.</p>';
+            return;
+        }
+
+        // Wait for map to be fully loaded before running tests
+        map.on('load', function() {
+            resultsContent.innerHTML += '<p>Map loaded. Starting tests...</p>';
+            runRoutingTests();
+        });
+
+        function logResult(message, success) {
+            const p = document.createElement('p');
+            p.textContent = message;
+            p.style.color = success ? 'green' : 'red';
+            resultsContent.appendChild(p);
+        }
+
+        async function runRoutingTests() {
+            const startPointInput = document.getElementById('startPoint');
+            const endPointInput = document.getElementById('endPoint');
+            const calculateRouteButton = document.getElementById('calculateRouteButton');
+
+            // Test Case 1: Valid route calculation
+            startPointInput.value = '54.6872,25.2797'; // Vilnius
+            endPointInput.value = '54.8985,23.9036';   // Kaunas
+
+            logResult('Test 1: Simulating click on "Calculate Route" with valid coordinates (Vilnius to Kaunas).', true);
+            calculateRouteButton.click();
+
+            // Wait for route to be drawn. This is tricky.
+            // We'll listen for the 'sourcedata' event which might indicate data has been loaded.
+            // A better approach might be to listen for 'idle' after the click or use a timeout.
+            // For simplicity, using a timeout here. A more robust solution would involve
+            // map events or promises if map.js exposed them.
+            
+            await new Promise(resolve => setTimeout(resolve, 5000)); // 5 seconds timeout to allow GH to respond and map to draw
+
+            try {
+                if (map.getSource('route') && map.getLayer('route')) {
+                    logResult('Test 1 PASSED: Route source and layer found on map.', true);
+                } else {
+                    let errorMsg = 'Test 1 FAILED: Route source or layer NOT found.';
+                    if (!map.getSource('route')) errorMsg += ' Source "route" is missing.';
+                    if (!map.getLayer('route')) errorMsg += ' Layer "route" is missing.';
+                    logResult(errorMsg, false);
+                }
+            } catch (e) {
+                logResult('Test 1 FAILED: Error accessing map source/layer: ' + e.message, false);
+            }
+
+            // Test Case 2: Invalid input (e.g., one field empty)
+            // map.js should show an alert, we can't easily test alerts in this environment.
+            // We can check if the route layer *wasn't* added or changed.
+            // For now, this test is more conceptual.
+            // A full UI testing framework like Selenium/Puppeteer would be better for alert testing.
+
+            // Remove route before next potential test
+            if (map.getLayer('route')) map.removeLayer('route');
+            if (map.getSource('route')) map.removeSource('route');
+
+            logResult('--- All tests finished ---', true);
+        }
+    });
+</script>
+
+</body>
+</html>

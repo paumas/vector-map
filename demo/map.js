@@ -740,3 +740,87 @@ function actionSearchClick(e) {
   var coords = searchResults[idx]._source.location;
   map.flyTo({ center: [coords[1], coords[0]], zoom: 16 });
 } // actionSearchClick
+
+document.addEventListener('DOMContentLoaded', function () {
+  const calculateRouteButton = document.getElementById('calculateRouteButton');
+  if (calculateRouteButton) {
+    calculateRouteButton.addEventListener('click', function () {
+      const startPointInput = document.getElementById('startPoint').value;
+      const endPointInput = document.getElementById('endPoint').value;
+
+      if (!startPointInput || !endPointInput) {
+        alert('Please enter both start and end points.');
+        return;
+      }
+
+      const startCoords = startPointInput.split(',').map(Number);
+      const endCoords = endPointInput.split(',').map(Number);
+
+      if (startCoords.length !== 2 || endCoords.length !== 2 || startCoords.some(isNaN) || endCoords.some(isNaN)) {
+        alert('Invalid coordinates. Please use format: latitude,longitude');
+        return;
+      }
+
+      const ghRouting = new GraphHopper.Routing({
+        key: '', // No API key needed for local server
+        host: 'http://localhost:8989',
+        vehicle: 'car',
+        elevation: false,
+      });
+
+      ghRouting.doRequest({
+        points: [
+          [startCoords[1], startCoords[0]], // GH uses LngLat
+          [endCoords[1], endCoords[0]],   // GH uses LngLat
+        ]
+      })
+      .then(function (json) {
+        if (json.paths && json.paths.length > 0) {
+          const routeCoordinates = json.paths[0].points.coordinates.map(coord => [coord[0], coord[1]]);
+
+          // Remove existing route if any
+          if (map.getLayer('route')) {
+            map.removeLayer('route');
+          }
+          if (map.getSource('route')) {
+            map.removeSource('route');
+          }
+
+          map.addSource('route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: {
+                type: 'LineString',
+                coordinates: routeCoordinates,
+              },
+            },
+          });
+
+          map.addLayer({
+            id: 'route',
+            type: 'line',
+            source: 'route',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round',
+            },
+            paint: {
+              'line-color': '#3887be',
+              'line-width': 5,
+              'line-opacity': 0.75,
+            },
+          });
+        } else {
+          alert('No route found.');
+          console.error('GraphHopper response error:', json);
+        }
+      })
+      .catch(function (err) {
+        alert('Error calculating route. Check console for details.');
+        console.error('GraphHopper request error:', err);
+      });
+    });
+  }
+});

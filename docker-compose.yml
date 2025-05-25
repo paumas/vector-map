@@ -29,6 +29,22 @@ services:
     volumes:
       - "/usr/share/elasticsearch/data"
 
+  graphhopper:
+    image: graphhopper/graphhopper:latest # Using latest, consider pinning to a specific version
+    network_mode: service:net
+    environment:
+      # Set Java options for memory allocation. Adjust -Xmx and -Xms as needed.
+      # GH_JAVA_OPTS: "-Xmx1g -Xms1g" # Default is 1g, this is just an example
+      # The image's default CMD will import *.osm.pbf from /data
+      # Ensure the PBF file is in the root of the mounted /data volume
+      # Or explicitly set graph.location if needed:
+      # GH_GRAPH_LOCATION: "/data/osm.pbf"
+      # Using RAM_STORE for graph.dataaccess for faster startup with smaller graphs
+      # GH_GRAPH_DATAACCESS: "RAM_STORE" # Default is MMAP
+    volumes:
+      - "./data/lithuania-latest.osm.pbf:/data/osm.pbf:ro" # Mount the PBF file to /data/osm.pbf
+      - "./graphhopper_cache:/graphhopper/graph-cache" # Persist graph cache
+
   web:
     image: nginx:stable
     network_mode: service:net
@@ -48,3 +64,4 @@ services:
       - "8080:8080" # web -- nginx
       - "8888:8888" # maputnik
       - "9500:9500" # elastic
+      - "8989:8989" # graphhopper
