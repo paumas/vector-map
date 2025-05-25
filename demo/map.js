@@ -172,11 +172,23 @@ $('#layers button').on('click', function (e) {
   $(this).addClass('active');
 
   var selectLayer = $(e.target).data('style');
+  mapData.type = selectLayer; // Update type first
+  mapData.objectId = null; // Reset objectId when changing layer type
+
   map.setStyle('styles/' + selectLayer + '.json');
 
-  mapData.type = selectLayer;
-  mapData.id = null;
-  changeHashUrl(mapData);
+  map.once('styledata', function() {
+    // Ensure mapData reflects the view *before* style change,
+    // or use the most recent values if setMapData() was called by moveend.
+    // The existing mapData should be fine as setMapData() updates it on 'moveend'.
+    map.setZoom(mapData.zoom);
+    map.setCenter([mapData.lng, mapData.lat]);
+    map.setBearing(mapData.bearing);
+    map.setPitch(mapData.pitch);
+    
+    // Update hash after style has loaded and view is set
+    changeHashUrl(); 
+  });
 });
 
 function getUrlHash(state) {

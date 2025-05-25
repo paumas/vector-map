@@ -86,10 +86,31 @@
   }
   document.addEventListener("DOMContentLoaded", function(e) { sw_init('map_general'); } );
 function toMap() {
-  map.setStyle('styles/map.json');
+  // initial_map is 'map_general' as per sw_init('map_general')
+  // This function is called when switching FROM orto/hybrid TO the 'map_general' style
+  mapData.type = 'map_general'; 
+  mapData.objectId = null;
+  map.setStyle('styles/map_general.json'); // Assuming initial_map style is map_general.json
+  map.once('styledata', function() {
+    map.setZoom(mapData.zoom);
+    map.setCenter([mapData.lng, mapData.lat]);
+    map.setBearing(mapData.bearing);
+    map.setPitch(mapData.pitch);
+    changeHashUrl();
+  });
 } // toMap
 function toOrto() {
+  // This function is called when switching TO orto/hybrid
+  mapData.type = 'hybrid'; 
+  mapData.objectId = null;
   map.setStyle('styles/hybrid.json');
+  map.once('styledata', function() {
+    map.setZoom(mapData.zoom);
+    map.setCenter([mapData.lng, mapData.lat]);
+    map.setBearing(mapData.bearing);
+    map.setPitch(mapData.pitch);
+    changeHashUrl();
+  });
 } // toOrto
 </script>
 </body>
